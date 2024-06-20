@@ -149,12 +149,14 @@ fn main() -> Result<()> {
         .iter()
         .partition(|&f| test_file_results.contains_key(f));
 
+    // Sort test files by time in descending order
     recorded_test_files.sort_by(|&a, &b| {
         let v1 = test_file_results.get(a).unwrap();
         let v2 = test_file_results.get(b).unwrap();
         v2.partial_cmp(v1).unwrap()
     });
 
+    // Distribute the recorded test files to the nodes
     for test_file in recorded_test_files {
         nodes.sort_by(|a, b| {
             a.recorded_total_time
@@ -167,10 +169,29 @@ fn main() -> Result<()> {
             .add(test_file, *test_file_results.get(test_file).unwrap());
     }
 
+    // Distribute the unrecorded test files to the nodes
     for (i, test_file) in not_recorded_test_files.iter().enumerate() {
         warn!("Timing data not found: {}", test_file.to_str().unwrap());
         let len = nodes.len();
         nodes.get_mut(i % len).unwrap().add(test_file, 0.0);
+    }
+
+    // Balance the nodes to ensure the total times are as even as possible
+    let total_time: f64 = nodes.iter().map(|node| node.recorded_total_time).sum();
+    let ideal_time_per_node = total_time / nodes.len() as f64;
+
+    for i in 0..nodes.len() {
+        for j in (i + 1)..nodes.len() {
+            while nodes[i].recorded_total_time > ideal_time_per_node && nodes[j].recorded_total_time < ideal_time_per_node {
+                if let Some(test_file) = nodes[i].test_files.pop() {
+                    let time = test_file_results.get(test_file).unwrap_or(&0.0);
+                    nodes[i].recorded_total_time -= time;
+                    nodes[j].add(test_file, *time);
+                } else {
+                    break;
+                }
+            }
+        }
     }
 
     if log_enabled!(Debug) {
