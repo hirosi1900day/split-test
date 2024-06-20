@@ -157,6 +157,13 @@ fn main() -> Result<()> {
         v2.partial_cmp(v1).unwrap()
     });
 
+    // Pre-distribute the unrecorded test files to the nodes evenly
+    for (i, test_file) in not_recorded_test_files.iter().enumerate() {
+        warn!("Timing data not found: {}", test_file.to_str().unwrap());
+        let len = nodes.len();
+        nodes.get_mut(i % len).unwrap().add(test_file, 0.0);
+    }
+
     // Distribute the recorded test files to the nodes
     for test_file in recorded_test_files {
         nodes.sort_by(|a, b| {
@@ -168,13 +175,6 @@ fn main() -> Result<()> {
             .get_mut(0)
             .unwrap()
             .add(test_file, *test_file_results.get(test_file).unwrap());
-    }
-
-    // Pre-distribute the unrecorded test files to the nodes evenly
-    for (i, test_file) in not_recorded_test_files.iter().enumerate() {
-        warn!("Timing data not found: {}", test_file.to_str().unwrap());
-        let len = nodes.len();
-        nodes.get_mut(i % len).unwrap().add(test_file, 0.0);
     }
 
     // Balance the nodes to ensure the total times are as even as possible
