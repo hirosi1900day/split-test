@@ -44,6 +44,7 @@ struct TestSuite {
     file: Option<PathBuf>,
     time: f64,
 }
+
 #[derive(Debug, Deserialize, PartialEq)]
 struct TestCase {
     #[serde(alias = "filepath", default)]
@@ -145,7 +146,7 @@ fn main() -> Result<()> {
         bail!("Test file is not found. pattern: {:?}", args.tests_glob);
     }
 
-    let (mut recorded_test_files, not_recorded_test_files): (Vec<_>, Vec<_>) = test_files
+    let (mut recorded_test_files, mut not_recorded_test_files): (Vec<_>, Vec<_>) = test_files
         .iter()
         .partition(|&f| test_file_results.contains_key(f));
 
@@ -169,7 +170,7 @@ fn main() -> Result<()> {
             .add(test_file, *test_file_results.get(test_file).unwrap());
     }
 
-    // Distribute the unrecorded test files to the nodes
+    // Pre-distribute the unrecorded test files to the nodes evenly
     for (i, test_file) in not_recorded_test_files.iter().enumerate() {
         warn!("Timing data not found: {}", test_file.to_str().unwrap());
         let len = nodes.len();
@@ -187,6 +188,11 @@ fn main() -> Result<()> {
                     let time = test_file_results.get(test_file).unwrap_or(&0.0);
                     nodes[i].recorded_total_time -= time;
                     nodes[j].add(test_file, *time);
+
+                    // If node j exceeds the ideal time, break to prevent over-balancing
+                    if nodes[j].recorded_total_time >= ideal_time_per_node {
+                        break;
+                    }
                 } else {
                     break;
                 }
