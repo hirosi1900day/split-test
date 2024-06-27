@@ -89,7 +89,7 @@ fn get_test_file_results(junit_xml_report_dir: &PathBuf) -> Result<HashMap<PathB
     let mut test_file_results = HashMap::new();
 
     for xml_path in expand_globs(&vec![String::from(xml_glob)])? {
-        let reader = BufReader::new(File::open(xml_path)?);
+        let reader = BufReader::new(File::open(&xml_path)?)?;
         let test_result_xml: TestResultXml = from_reader(reader)?;
 
         let test_suites = test_result_xml.test_suites.unwrap_or(vec![TestSuite {
@@ -142,62 +142,29 @@ fn main() -> Result<()> {
     let test_file_results = get_test_file_results(&args.junit_xml_report_dir)?;
 
     let test_files = expand_globs(&args.tests_glob)?;
-    if test_files.len() == 0 {
+    if test_files.is_empty() {
         bail!("Test file is not found. pattern: {:?}", args.tests_glob);
     }
 
-    let (mut recorded_test_files, mut not_recorded_test_files): (Vec<_>, Vec<_>) = test_files
+    let (mut recorded_test_files, not_recorded_test_files): (Vec<_>, Vec<_>) = test_files
         .iter()
         .partition(|&f| test_file_results.contains_key(f));
 
-    // Sort test files by time in descending order
     recorded_test_files.sort_by(|&a, &b| {
         let v1 = test_file_results.get(a).unwrap();
         let v2 = test_file_results.get(b).unwrap();
         v2.partial_cmp(v1).unwrap()
     });
 
-    // Pre-distribute the unrecorded test files to the nodes evenly
+    let mut i = 0;
+    for test_file in recorded_test_files {
+        nodes[i % nodes.len()].add(test_file, *test_file_results.get(test_file).unwrap());
+        i += 1;
+    }
+
     for (i, test_file) in not_recorded_test_files.iter().enumerate() {
         warn!("Timing data not found: {}", test_file.to_str().unwrap());
-        let len = nodes.len();
-        nodes.get_mut(i % len).unwrap().add(test_file, 0.0);
-    }
-
-    // Distribute the recorded test files to the nodes
-    for test_file in recorded_test_files {
-        nodes.sort_by(|a, b| {
-            a.recorded_total_time
-                .partial_cmp(&b.recorded_total_time)
-                .unwrap()
-        });
-        nodes
-            .get_mut(0)
-            .unwrap()
-            .add(test_file, *test_file_results.get(test_file).unwrap());
-    }
-
-    // Balance the nodes to ensure the total times are as even as possible
-    let total_time: f64 = nodes.iter().map(|node| node.recorded_total_time).sum();
-    let ideal_time_per_node = total_time / nodes.len() as f64;
-
-    for i in 0..nodes.len() {
-        for j in (i + 1)..nodes.len() {
-            while nodes[i].recorded_total_time > ideal_time_per_node && nodes[j].recorded_total_time < ideal_time_per_node {
-                if let Some(test_file) = nodes[i].test_files.pop() {
-                    let time = test_file_results.get(test_file).unwrap_or(&0.0);
-                    nodes[i].recorded_total_time -= time;
-                    nodes[j].add(test_file, *time);
-
-                    // If node j exceeds the ideal time, break to prevent over-balancing
-                    if nodes[j].recorded_total_time >= ideal_time_per_node {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-        }
+        nodes[i % nodes.len()].add(test_file, 0.0);
     }
 
     if log_enabled!(Debug) {
