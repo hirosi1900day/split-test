@@ -44,6 +44,7 @@ struct TestSuite {
     file: Option<PathBuf>,
     time: f64,
 }
+
 #[derive(Debug, Deserialize, PartialEq)]
 struct TestCase {
     #[serde(alias = "filepath", default)]
@@ -141,7 +142,7 @@ fn main() -> Result<()> {
     let test_file_results = get_test_file_results(&args.junit_xml_report_dir)?;
 
     let test_files = expand_globs(&args.tests_glob)?;
-    if test_files.len() == 0 {
+    if test_files.is_empty() {
         bail!("Test file is not found. pattern: {:?}", args.tests_glob);
     }
 
@@ -149,28 +150,30 @@ fn main() -> Result<()> {
         .iter()
         .partition(|&f| test_file_results.contains_key(f));
 
-    recorded_test_files.sort_by(|&a, &b| {
+    recorded_test_files.sort_by(|a, b| {
         let v1 = test_file_results.get(a).unwrap();
         let v2 = test_file_results.get(b).unwrap();
         v2.partial_cmp(v1).unwrap()
     });
 
-    for test_file in recorded_test_files {
-        nodes.sort_by(|a, b| {
+    // ファイルを各ノードに均等に分配する
+    for test_file in recorded_test_files.iter() {
+        let least_loaded_node = nodes.iter_mut().min_by(|a, b| {
             a.recorded_total_time
                 .partial_cmp(&b.recorded_total_time)
                 .unwrap()
-        });
-        nodes
-            .get_mut(0)
-            .unwrap()
-            .add(test_file, *test_file_results.get(test_file).unwrap());
+        }).unwrap();
+        least_loaded_node.add(test_file, *test_file_results.get(&test_file).unwrap());
     }
 
-    for (i, test_file) in not_recorded_test_files.iter().enumerate() {
+    for test_file in not_recorded_test_files.iter() {
         warn!("Timing data not found: {}", test_file.to_str().unwrap());
-        let len = nodes.len();
-        nodes.get_mut(i % len).unwrap().add(test_file, 0.0);
+        let least_loaded_node = nodes.iter_mut().min_by(|a, b| {
+            a.recorded_total_time
+                .partial_cmp(&b.recorded_total_time)
+                .unwrap()
+        }).unwrap();
+        least_loaded_node.add(test_file, 0.0);
     }
 
     if log_enabled!(Debug) {
