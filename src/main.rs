@@ -89,7 +89,7 @@ fn get_test_file_results(junit_xml_report_dir: &PathBuf) -> Result<HashMap<PathB
     let mut test_file_results = HashMap::new();
 
     for xml_path in expand_globs(&vec![String::from(xml_glob)])? {
-        let reader = BufReader::new(File::open(&xml_path)?)?;
+        let reader = BufReader::new(File::open(&xml_path)?);
         let test_result_xml: TestResultXml = from_reader(reader)?;
 
         let test_suites = test_result_xml.test_suites.unwrap_or(vec![TestSuite {
@@ -156,15 +156,16 @@ fn main() -> Result<()> {
         v2.partial_cmp(v1).unwrap()
     });
 
-    let mut i = 0;
-    for test_file in recorded_test_files {
-        nodes[i % nodes.len()].add(test_file, *test_file_results.get(test_file).unwrap());
-        i += 1;
+    let num_nodes = nodes.len();
+    for (i, test_file) in recorded_test_files.iter().enumerate() {
+        let node_index = i % num_nodes;
+        nodes[node_index].add(test_file, *test_file_results.get(test_file).unwrap());
     }
 
     for (i, test_file) in not_recorded_test_files.iter().enumerate() {
         warn!("Timing data not found: {}", test_file.to_str().unwrap());
-        nodes[i % nodes.len()].add(test_file, 0.0);
+        let node_index = i % num_nodes;
+        nodes[node_index].add(test_file, 0.0);
     }
 
     if log_enabled!(Debug) {
